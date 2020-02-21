@@ -28,6 +28,7 @@ library(rgeos)
 library(maptools)
 library(gifski)
 library(gganimate)
+library(transformr)
 
 vpl_15052019 <- readRDS("vpl_15052019.rds")
 community_boundaries <- readOGR("geo_export_e135fc9f-0eec-429a-b94b-14836af732d4.shp")
@@ -77,5 +78,66 @@ p <- ggplot(vpl_5_min_intervals,
                     state_length = 1)
   
 #animate(p, nframes = 1440, duration = 60)
+```
+
+## Second Map: Early or Late?
+
+For the next map, I want to colour each community by the mean predicted deviation for all of the transit vehicle that cross through that community in a given 15-minute span.
+
+```{r calculate mean deviation for communities}
+vpl_deviation <- vpl_15052019 %>% 
+  mutate(time_rounded_1h = round_date(vehicle_position_date_time,
+                                        unit = "1 hour")) %>% 
+  group_by(time_rounded_1h,
+           community) %>% 
+  summarise(med_deviation = median(predicted_deviation))
+
+vpl_deviation$deviation <- cut_interval(vpl_deviation$med_deviation, 
+                                        n = 7,
+                                        dig.lab = 2,
+                                        ordered_result = TRUE)
+```
+
+Note that `vpl_deviation` does not contain `NA` values for time-community combinations that are not present, they are simply not listed. I need the NA values to be present in order for them to be represented on the choropleth.
+
+To make this possible, I will take the Cartesian product of the `community_bounds_df` with the unique time values before attaching the mean deviations with a `left_join()`.
+
+```{r create df with boundaries and choropleth}
+times <- vpl_deviation %>% 
+  arrange(time_rounded_1h) %>% 
+  select(time_rounded_1h) %>% 
+  distinct()
+
+community_bounds_w_times <- crossing(community_bounds_df,
+                                     times) %>% 
+  arrange(order, time_rounded_1h)
+
+community_bounds_w_deviation <- left_join(community_bounds_w_times,
+                                          vpl_deviation,
+                                          by = c("id" = "community",
+                                                 "time_rounded_1h" = "time_rounded_1h"))
+```
+
+I am now in a position to map the data using `geom_polygon` with the fill mapped to the mean deviation.
+
+```{r construct map 2}
+map_2 <- ggplot(community_bounds_w_deviation,
+                aes(x = long,
+                    y = lat,
+                    group = group)) +
+  geom_polygon(aes(fill = deviation),
+               colour = "white") +
+  coord_map() +
+  theme_void() +
+  theme(plot.margin = margin(5,5,5,5)) +
+  transition_time(time_rounded_1h) +
+  scale_fill_brewer(type = "div",
+                    palette = "Spectral") + 
+  labs(title = "Will YYC Transit Vehicles be Early or Late?",
+       subtitle = "Median predicted deviation from schedule for all vehicles\nin each neighbourhood at times closest to {frame_time}",
+       caption = "Data: City of Calgary Open Data Catalogue\nCreated by: Alexander Ondrus",
+       fill = "Predicted Deviation")
+
+#animate(map_2, nframes = 25, duration = 30)
 ```
 
