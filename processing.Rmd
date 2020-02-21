@@ -1,0 +1,125 @@
+---
+title: "Data Processing"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Goal
+
+The goal of the steps below is to create a data frame of points with the following criteria:
+
+- The rows of the data set correspond to individual observations from an AVL
+- Columns given by:
+    - Observation date/time (vehicle_position_date_time)
+    - Vehicle Position (Latitude)
+    - Vehicle Position (longitude)
+    - Vehicle's Average Speed (average_speed)
+    - Predicted Deviation from Schedule in Minutes (predicted_deviation)
+    - Unique Vehicle Identifier (vehicle_id)
+    - Community the Vehicle is Currently In (community)
+- Time span covering a single day (midnight to midnight)
+
+## Reading CSV and Formatting Columns
+
+First I load the tidyverse and lubridate packages for later use:
+
+```{r libraries}
+library(tidyverse)
+library(lubridate)
+library(rgeos)
+library(maptools)
+library(rgdal)
+```
+
+
+Next, I read in the CSV from the City of Calgary Open Data Catalogue containing vehicle location logs found [here](https://data.calgary.ca/Transportation-Transit/Vehicle-Position-Log/jkyn-p9x4).
+
+```{r read in vpl data}
+yyc_vpl <- read_csv("Vehicle_Position_Log.csv")
+```
+
+The time/date columns are currently formatted as characters, but the lubridate package makes them easy to convert. First I remove the apparent offset at the end, as it appears to be the same value for all entries.
+
+```{r format dates}
+yyc_vpl$playback_date_time <- substr(
+  yyc_vpl$playback_date_time,
+  1,
+  nchar(yyc_vpl$playback_date_time)-6
+  )
+
+yyc_vpl$playback_date_time <- parse_date_time2(
+  yyc_vpl$playback_date_time,
+  "mdY IMS p",
+  tz = "MST"
+)
+
+
+yyc_vpl$vehicle_position_date_time <- substr(
+  yyc_vpl$vehicle_position_date_time,
+  1,
+  nchar(yyc_vpl$vehicle_position_date_time)-6
+)
+
+yyc_vpl$vehicle_position_date_time <- parse_date_time2(
+  yyc_vpl$vehicle_position_date_time,
+  "mdY IMS p",
+  tz = "MST"
+)
+```
+
+## Subsetting for Wednesday, May 15, 2019
+
+Here I pick a "typical" day at random (midweek, no major holidays that week) and subset for that day.
+
+```{r subset for 15-5-2019}
+vpl_15052019 <- filter(yyc_vpl,
+                       year(vehicle_position_date_time) == 2019,
+                       month(vehicle_position_date_time) == 5,
+                       day(vehicle_position_date_time) == 15)
+                       
+```
+
+## Attaching Neighbourhood Data
+
+First, I need to read in the "Community Boundaries" shapefile from the City of Calgary Open Data Catalogue found [here](https://data.calgary.ca/Base-Maps/Community-Boundaries/ab7m-fwn6). I do this using the readOGR command from the rgdal package.
+
+```{r read community boundaries}
+community <- readOGR("geo_export_e135fc9f-0eec-429a-b94b-14836af732d4.shp")
+```
+
+Now I isolate the longitude, latitude, and observation ID's for the data and convert these into a spatial points object.
+
+```{r points to spatial points}
+vpl_points <- select(vpl_15052019, longitude, latitude, vehicle_position_log_id)
+coordinates(vpl_points) <- c("longitude", "latitude")
+proj4string(vpl_points) <- proj4string(community)
+```
+
+Finally, I use the over() function to determine which community contains each point and attach it as another column to my original data.
+
+```{r attach community}
+point_community <- over(vpl_points, as(community, "SpatialPolygons"))
+vpl_15052019$community <- community$name[point_community]
+```
+
+## Saving the Data
+
+Lastly I select the columns identified at the beginning, filter out rows without any community attached, and output the file to a .rds file for easy loading back into R later on.
+
+```{r select, filter, and output data}
+output_data <- select(vpl_15052019,
+                      vehicle_position_date_time,
+                      longitude,
+                      latitude,
+                      average_speed,
+                      predicted_deviation,
+                      vehicle_id,
+                      community) %>% 
+  filter(!is.na(community))
+
+saveRDS(output_data, file = "vpl_15052019.rds")
+```
+
