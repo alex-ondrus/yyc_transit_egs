@@ -52,6 +52,8 @@ vpl_5_min_intervals <- group_by(vpl_5_min_intervals,
   arrange(vehicle_position_date_time, vehicle_id)
 ```
 
+Now I generate the animated map. Note that the `transition_states()` argument only applies to the layers using the data passed in to `ggplot()`. Also note that  `coord_map()` uses the mercator projection by default. 
+
 ```{r generate animated vehicle location map}
 p <- ggplot(vpl_5_min_intervals,
             aes(x = longitude,
@@ -59,7 +61,7 @@ p <- ggplot(vpl_5_min_intervals,
   geom_point(aes(group = vehicle_id),
              colour = "red") +
   labs(title = "Position of YYC Transit Vehicles",
-       subtitle = "at time {closest_state}",
+       subtitle = "{closest_state}",
        caption = "Data: City of Calgary Open Data\nCreated by Alexander Ondrus") +
   geom_polygon(data = community_bounds_df,
                aes(x = long,
@@ -68,7 +70,8 @@ p <- ggplot(vpl_5_min_intervals,
                fill = NA,
                colour = "grey") +
   theme_void() +
-  coord_equal() +
+  theme(plot.margin = margin(5,5,5,5)) +
+  coord_map() +
   transition_states(vehicle_position_date_time,
                     transition_length = 4,
                     state_length = 1)
