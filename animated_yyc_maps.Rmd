@@ -14,7 +14,9 @@ Using pre-processed data containing time stamped _Vehicle Position Logs_ (VPLs),
 
 1. The position of each bus in the city on 5 minute intervals
 2. The average prediction for derivation from the schedule (early or late) for all busses in each community, by hour
-3. The average speed for all busses passing through each neighbourhood, by hour
+3. The average speed for all busses passing through each community, by hour
+
+__NOTE: The animate commands take a _very_ long time to run, so make sure you comment them out before running all code chunks.__
 
 ## Loading Libraries and Data
 
@@ -77,7 +79,7 @@ p <- ggplot(vpl_5_min_intervals,
                     transition_length = 4,
                     state_length = 1)
   
-#animate(p, nframes = 1440, duration = 60)
+animate(p, nframes = 1440, duration = 60)
 ```
 
 ## Second Map: Early or Late?
@@ -134,10 +136,74 @@ map_2 <- ggplot(community_bounds_w_deviation,
   scale_fill_brewer(type = "div",
                     palette = "Spectral") + 
   labs(title = "Will YYC Transit Vehicles be Early or Late?",
-       subtitle = "Median predicted deviation from schedule for all vehicles\nin each neighbourhood at times closest to {frame_time}",
+       subtitle = "Median predicted deviation from schedule for all vehicles\nin each community at times closest to {frame_time}",
        caption = "Data: City of Calgary Open Data Catalogue\nCreated by: Alexander Ondrus",
        fill = "Predicted Deviation")
 
-#animate(map_2, nframes = 25, duration = 30)
+animate(map_2, nframes = 25, duration = 30)
 ```
 
+## Third Map: Vehicle Speed
+
+Similar to how the last map was constructed, I will first have to summarize the speed of the busses in each community for each hour and then I will attach that data to the polygon data frame.
+
+Rather than use the raw speed for each community, I will first scale the speeds of all vehicles across all hours and then take the median scaled value within each community for each hour. Changes in this value will then represent deviations from what is "normal" for that community.
+
+```{r create scaled speed values}
+vpl_speed <- vpl_15052019 %>% 
+  group_by(community) %>% 
+  mutate(scaled_speed = (average_speed - mean(average_speed))/mean(average_speed)) %>%
+  ungroup() %>% 
+  mutate(time_rounded_1h = round_date(vehicle_position_date_time,
+                                      unit = "1 hour")) %>% 
+  group_by(time_rounded_1h,
+           community) %>% 
+  summarise(mean_speed_percent = mean(scaled_speed)) %>% 
+  filter(mean_speed_percent <1)
+
+vpl_speed$speed_bins <- cut_interval(vpl_speed$mean_speed_percent,
+                                     n = 7,
+                                     dig.lab = 2,
+                                     ordered_result = TRUE)
+```
+
+I can  perform a similar joining operation to what was done previously for the deviations choropleth.
+
+```{r create df with boundaries and speeds}
+times <- vpl_speed %>% 
+  arrange(time_rounded_1h) %>% 
+  select(time_rounded_1h) %>% 
+  distinct()
+
+community_bounds_w_times <- crossing(community_bounds_df,
+                                     times) %>% 
+  arrange(order, time_rounded_1h)
+
+community_bounds_w_speed <- left_join(community_bounds_w_times,
+                                          vpl_speed,
+                                          by = c("id" = "community",
+                                                 "time_rounded_1h" = "time_rounded_1h"))
+```
+
+The mapping commands also are very similar to what was done for the previous map.
+
+```{r construct map 3}
+map_3 <- ggplot(community_bounds_w_speed,
+                aes(x = long,
+                    y = lat,
+                    group = group)) +
+  geom_polygon(aes(fill = speed_bins),
+               colour = "grey") +
+  coord_map() +
+  theme_void() +
+  theme(plot.margin = margin(5,5,5,5)) +
+  transition_time(time_rounded_1h) +
+  scale_fill_brewer(type = "div",
+                    palette = "Spectral") + 
+  labs(title = "When are YYC Vehicles Moving the Fastest\n(or Slowest) in Each Community?",
+       subtitle = "Percent above or below the mean daily speed at {frame_time}.",
+       caption = "Data: City of Calgary Open Data Catalogue\nCreated by: Alexander Ondrus",
+       fill = "% as a decimal")
+
+animate(map_3, nframes = 25, duration = 30)
+```
