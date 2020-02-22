@@ -140,7 +140,7 @@ map_2 <- ggplot(community_bounds_w_deviation,
        caption = "Data: City of Calgary Open Data Catalogue\nCreated by: Alexander Ondrus",
        fill = "Predicted Deviation")
 
-animate(map_2, nframes = 25, duration = 30)
+animate(map_2, nframes = 25, duration = 60)
 ```
 
 ## Third Map: Vehicle Speed
@@ -205,5 +205,42 @@ map_3 <- ggplot(community_bounds_w_speed,
        caption = "Data: City of Calgary Open Data Catalogue\nCreated by: Alexander Ondrus",
        fill = "% as a decimal")
 
-animate(map_3, nframes = 25, duration = 30)
+animate(map_3, nframes = 25, duration = 60)
 ```
+
+Finally, for comparison, I create a facet wrapped version that displays each frame on its own slide. Unfortunately, `facet_wrap` appears to glitch when faceting by times, so I will convert it into an ordered factor first.
+
+```{r convert date column to ordered factor}
+times_sorted <- sort(unique(community_bounds_w_speed$time_rounded_1h)) %>% 
+  as.character()
+community_bounds_w_speed$time_rounded_1h <-  as.character(
+  community_bounds_w_speed$time_rounded_1h
+) %>% 
+  factor(
+  levels = times_sorted,
+  ordered = TRUE
+)
+```
+
+
+```{r Facet wrap version of map 3}
+map_3_facet <- ggplot(community_bounds_w_speed,
+                aes(x = long,
+                    y = lat,
+                    group = group)) +
+  geom_polygon(aes(fill = speed_bins),
+               colour = "grey") +
+  coord_map() +
+  theme_void() +
+  theme(plot.margin = margin(5,5,5,5)) +
+  facet_wrap("time_rounded_1h", nrow = 5) +
+  scale_fill_brewer(type = "div",
+                    palette = "Spectral") + 
+  labs(title = "When are YYC Vehicles Moving the Fastest\n(or Slowest) in Each Community?",
+       subtitle = "Percent above or below the mean daily speed at each time.",
+       caption = "Data: City of Calgary Open Data Catalogue\nCreated by: Alexander Ondrus",
+       fill = "% as a decimal")
+
+plot(map_3_facet)
+```
+
